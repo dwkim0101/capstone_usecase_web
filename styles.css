@@ -1,0 +1,67 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f4f4f4;
+}
+
+.diagram-container {
+    display: flex;
+    justify-content: space-between;
+    padding: 20px;
+    min-height: 800px;
+    position: relative;
+}
+
+.actor {
+    width: 200px;
+    text-align: center;
+}
+
+.actor-title {
+    background-color: #f0f0f0;
+    padding: 10px;
+    border-radius: 5px;
+    margin-bottom: 20px;
+    font-weight: bold;
+}
+
+.use-case-group {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.use-case {
+    background-color: #e0e0e0;
+    padding: 10px;
+    border-radius: 5px;
+    margin: 5px 0;
+}
+
+.use-case-subgroup {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-left: 20px;
+}
+
+.use-case-subgroup .use-case {
+    background-color: #d0d0d0;
+    font-size: 0.9em;
+}
+
+svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.actor {
+    position: relative;
+    z-index: 2;
+}

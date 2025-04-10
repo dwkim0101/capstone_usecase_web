@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SMART AIR 확장 유즈케이스 다이어그램</title>
+  <script src="https://unpkg.com/gojs/release/go.js"></script>
+  <style>
+    body { 
+      font-family: 'Noto Sans KR', sans-serif;
+      margin: 0;
+      padding: 0; 
+      background-color: #1a1a1a;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #myDiagramDiv {
+      width: 100%;
+      height: calc(100vh - 60px);
+      background-color: #1a1a1a;
+    }
+    .container {
+      width: 100%;
+      height: 100vh;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    h1 {
+      color: white;
+      text-align: center;
+      margin: 10px 0;
+      height: 40px;
+    }
+    .controls {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 100;
+      display: flex;
+      gap: 10px;
+    }
+    .control-btn {
+      background-color: rgba(255, 255, 255, 0.2);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 8px 12px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    .control-btn:hover {
+      background-color: rgba(255, 255, 255, 0.3);
+    }
+    /* 오류 메시지 패널 스타일 */
+    #errorPanel {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      background-color: rgba(30, 30, 30, 0.9);
+      border-radius: 5px;
+      padding: 10px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+      max-width: 400px;
+      max-height: 200px;
+      overflow-y: auto;
+      z-index: 1000;
+      display: none;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .error-message {
+      color: #ff5252;
+      font-size: 14px;
+      margin-bottom: 5px;
+      padding: 5px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .warning-message {
+      color: #ffab40;
+      font-size: 14px;
+      margin-bottom: 5px;
+      padding: 5px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .close-btn {
+      float: right;
+      cursor: pointer;
+      font-weight: bold;
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>SMART AIR 확장 유즈케이스 다이어그램</h1>
+    <div id="myDiagramDiv"></div>
+  </div>
+  
+  <!-- 컨트롤 버튼 -->
+  <div class="controls">
+    <button class="control-btn" onclick="resetDiagram()">다이어그램 초기화</button>
+    <button class="control-btn" onclick="zoomToFit()">전체 보기</button>
+    <button class="control-btn" onclick="toggleFullscreen()">전체화면</button>
+  </div>
+
+  <!-- 오류 메시지 패널 -->
+  <div id="errorPanel">
+    <span class="close-btn" onclick="closeErrorPanel()">×</span>
+    <div id="errorMessages"></div>
+  </div>
+
+  <script>
+    // 오류 메시지 처리 함수
+    function showError(message, type = 'error') {
+      const errorPanel = document.getElementById('errorPanel');
+      const errorMessages = document.getElementById('errorMessages');
+      
+      const messageDiv = document.createElement('div');
+      messageDiv.className = type === 'error' ? 'error-message' : 'warning-message';
+      messageDiv.textContent = message;
+      
+      errorMessages.appendChild(messageDiv);
+      errorPanel.style.display = 'block';
+      
+      // 5초 후 자동으로 메시지 제거
+      setTimeout(() => {
+        errorMessages.removeChild(messageDiv);
+        if (errorMessages.children.length === 0) {
+          errorPanel.style.display = 'none';
+        }
+      }, 5000);
+    }
+    
+    // 오류 패널 닫기
+    function closeErrorPanel() {
+      const errorPanel = document.getElementById('errorPanel');
+      errorPanel.style.display = 'none';
+      document.getElementById('errorMessages').innerHTML = '';
+    }
+    
+    // 전체화면 전환 함수
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(err => {
+          showError('전체화면으로 전환할 수 없습니다: ' + err.message);
+        });
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        }
+      }
+    }
+    
+    // 창 크기 변경 시 다이어그램 크기 조정
+    window.addEventListener('resize', function() {
+      if (myDiagram) {
+        myDiagram.requestUpdate();
+      }
+    });
+    
+    // GoJS 에러 핸들러 등록
+    window.addEventListener('error', function(event) {
+      if (event.error && event.error.message && event.error.message.includes('go.js')) {
+        showError('GoJS 오류: ' + event.error.message);
+        return true; // 오류 처리됨
+      }
+      return false; // 다른 오류는 기본 처리
+    }, true);
+
+    const $ = go.GraphObject.make;
+    
+    try {
+      const myDiagram = $(go.Diagram, "myDiagramDiv", {
+        "undoManager.isEnabled": true,
+        // 개선된 레이아웃 - 세로 방향으로 변경
+        layout: $(go.LayeredDigraphLayout, {
+          direction: 90, // 0은 왼쪽에서 오른쪽, 90은 위에서 아래
+          layerSpacing: 50,  // 100에서 50으로 줄임
+          columnSpacing: 30, // 50에서 30으로 줄임
+          setsPortSpots: false,
+          packOption: go.LayeredDigraphLayout.PackAll
+        }),
+        initialScale: 0.4, // 초기 스케일 설정
+        initialContentAlignment: go.Spot.Center,
+        "toolManager.mouseWheelBehavior": go.ToolManager.WheelZoom,
+        "animationManager.isEnabled": true,
+        "animationManager.isInitial": false,
+        // 다이어그램 에러 핸들러 추가
+        "handlesDragDropForTopLevelParts": true,
+        // 모델 변경 이벤트 추가
+        "ModelChanged": function(e) {
+          if (e.isTransactionFinished) {
+            // 다이어그램 검증
+            try {
+              // 링크 유효성 검사
+              myDiagram.links.each(link => {
+                if (!link.fromNode || !link.toNode) {
+                  showError('유효하지 않은 링크가 있습니다: 시작 또는 끝 노드가 없습니다.', 'warning');
+                }
+                
+                if (link.fromNode === link.toNode) {
+                  showError('자기 참조 링크가 있습니다.', 'warning');
+                }
+              });
+            } catch (validationError) {
+              console.error("다이어그램 검증 오류:", validationError);
+              showError("다이어그램 검증 중 오류가 발생했습니다: " + validationError.message);
+            }
+          }
+        }
+      });
+      
+      // 다이어그램 전체 보기 함수
+      function zoomToFit() {
+        try {
+          myDiagram.commandHandler.zoomToFit();
+        } catch (error) {
+          console.error("확대/축소 오류:", error);
+          showError("다이어그램 확대/축소 중 오류가 발생했습니다: " + error.message);
+        }
+      }
+      
+      // 초기화 함수
+      function resetDiagram() {
+        try {
+          myDiagram.scale = 1.0;
+          myDiagram.commandHandler.zoomToFit();
+          myDiagram.contentAlignment = go.Spot.Center;
+        } catch (error) {
+          console.error("다이어그램 초기화 오류:", error);
+          showError("다이어그램 초기화 중 오류가 발생했습니다: " + error.message);
+        }
+      }
+      
+      // linkingTool 설정 안전하게 시도
+      try {
+        // 일부 속성은 직접 설정해야 할 수 있습니다
+        if (myDiagram.toolManager && myDiagram.toolManager.linkingTool) {
+          myDiagram.toolManager.linkingTool.archetypeLinkData = { category: "Normal" };
+        }
+      } catch (toolError) {
+        console.error("링크 도구 설정 오류:", toolError);
+        showError("링크 도구를 설정하는 중 오류가 발생했습니다: " + toolError.message);
+      }
+      
+      // 이벤트 리스너 추가
+      try {
+        // 오류 발생 시 콘솔에 표시
+        myDiagram.addDiagramListener("ExternalObjectsDropped", function(e) {
+          if (e.subject.count === 0) {
+            showError("객체를 추가할 수 없습니다: 유효하지 않은 데이터입니다.", "error");
+          }
+        });
+      } catch (listenerError) {
+        console.error("이벤트 리스너 설정 오류:", listenerError);
+        showError("이벤트 리스너를 설정하는 중 오류가 발생했습니다: " + listenerError.message);
+      }
+      
+      // 액터 템플릿 정의
+      myDiagram.nodeTemplateMap.add("Actor",
+        $(go.Node, "Vertical", {
+            locationSpot: go.Spot.Center
+          },
+          $(go.Panel, "Spot", {
+              width: 50, height: 50
+            },
+            $(go.Shape, "Circle", {
+              width: 50, height: 50,
+              fill: "white", stroke: "white", strokeWidth: 2
+            }),
+            // 원 안에 간단한 사람 모양 배치
+            $(go.Panel, "Vertical", {
+                alignment: go.Spot.Center
+              },
+              $(go.Shape, "Circle", {
+                width: 20, height: 20, 
+                fill: "#1a1a1a", stroke: "none"
+              }),
+              $(go.Shape, "Rectangle", {
+                width: 22, height: 15, 
+                fill: "#1a1a1a", stroke: "none",
+                margin: new go.Margin(0, 0, 0, 0)
+              })
+            )
+          ),
+          $(go.TextBlock, {
+            margin: 8,
+            font: "bold 12px sans-serif",
+            stroke: "white"
+          }, new go.Binding("text", "name"))
+        )
+      );
+
+      // IoT 기기 액터 템플릿
+      myDiagram.nodeTemplateMap.add("IoTActor",
+        $(go.Node, "Vertical", {
+            locationSpot: go.Spot.Center
+          },
+          $(go.Panel, "Spot", {
+              width: 50, height: 50
+            },
+            $(go.Shape, "Circle", {
+              width: 50, height: 50,
+              fill: "transparent", stroke: "white", strokeWidth: 2
+            }),
+            $(go.Picture, {
+              width: 30, height: 30,
+              source: "https://cdn-icons-png.flaticon.com/512/2844/2844785.png",
+              background: "white"
+            })
+          ),
+          $(go.TextBlock, {
+            margin: 8,
+            font: "bold 12px sans-serif",
+            stroke: "white"
+          }, new go.Binding("text", "name"))
+        )
+      );
+
+      // AI 시스템 액터 템플릿
+      myDiagram.nodeTemplateMap.add("AIActor",
+        $(go.Node, "Vertical", {
+            locationSpot: go.Spot.Center
+          },
+          $(go.Panel, "Spot", {
+              width: 50, height: 50
+            },
+            $(go.Shape, "Circle", {
+              width: 50, height: 50,
+              fill: "transparent", stroke: "white", strokeWidth: 2
+            }),
+            $(go.Picture, {
+              width: 30, height: 30,
+              source: "https://cdn-icons-png.flaticon.com/512/8058/8058228.png",
+              background: "white"
+            })
+          ),
+          $(go.TextBlock, {
+            margin: 8,
+            font: "bold 12px sans-serif",
+            stroke: "white"
+          }, new go.Binding("text", "name"))
+        )
+      );
+
+      // 외부 시스템 액터 템플릿
+      myDiagram.nodeTemplateMap.add("ExternalActor",
+        $(go.Node, "Vertical", {
+            locationSpot: go.Spot.Center
+          },
+          $(go.Panel, "Spot", {
+              width: 50, height: 50
+            },
+            $(go.Shape, "Circle", {
+              width: 50, height: 50,
+              fill: "transparent", stroke: "white", strokeWidth: 2
+            }),
+            $(go.Picture, {
+              width: 30, height: 30,
+              source: "https://cdn-icons-png.flaticon.com/512/2756/2756778.png",
+              background: "white"
+            })
+          ),
+          $(go.TextBlock, {
+            margin: 8,
+            font: "bold 12px sans-serif",
+            stroke: "white"
+          }, new go.Binding("text", "name"))
+        )
+      );
+
+      // 유즈케이스 템플릿
+      myDiagram.nodeTemplateMap.add("UseCase",
+        $(go.Node, "Auto", {
+            locationSpot: go.Spot.Center
+          },
+          $(go.Shape, "Ellipse", {
+            fill: "#333333", stroke: "white", strokeWidth: 1.5,
+            width: 120, height: 60
+          }),
+          $(go.TextBlock, {
+            margin: 8,
+            font: "12px sans-serif",
+            wrap: go.TextBlock.WrapFit,
+            textAlign: "center",
+            stroke: "white"
+          }, new go.Binding("text", "name"))
+        )
+      );
+
+      // 유즈케이스 그룹 템플릿
+      myDiagram.groupTemplateMap.add("UseCaseGroup",
+        $(go.Group, "Auto", {
+            layout: $(go.LayeredDigraphLayout, {
+              direction: 90,
+              columnSpacing: 10,
+              layerSpacing: 20
+            })
+          },
+          $(go.Shape, "RoundedRectangle", {
+            fill: "rgba(60,60,80,0.2)", stroke: "white", strokeWidth: 1,
+            strokeDashArray: [4, 2]
+          }),
+          $(go.Panel, "Vertical",
+            $(go.TextBlock, {
+              alignment: go.Spot.TopCenter,
+              margin: new go.Margin(5, 5, 0, 5),
+              font: "bold 12px sans-serif",
+              stroke: "white"
+            }, new go.Binding("text", "key")),
+            $(go.Placeholder, { padding: 10 })
+          )
+        )
+      );
+
+      // 액터-그룹 링크 데이터
+      const actorToGroupLinks = [
+        { from: "Admin", to: "공기질 관리", relation: "관리" },
+        { from: "Admin", to: "시스템 관리", relation: "관리" },
+        { from: "User", to: "사용자 활동", relation: "사용" },
+        { from: "IoTDevice", to: "데이터 수집", relation: "데이터 수집" },
+        { from: "IoTDevice", to: "ServerSystem", relation: "데이터 전송" },
+        { from: "ServerSystem", to: "AISystem", relation: "데이터 제공" },
+        { from: "AISystem", to: "AI 분석 및 예측", relation: "분석/예측" },
+        { from: "AISystem", to: "HVAC 제어", relation: "제어" },
+        { from: "AISystem", to: "에너지 최적화", relation: "최적화" },
+        { from: "ExternalSystem", to: "외부 시스템 연동", relation: "데이터 제공" }
+      ];
+
+      // 포함(include) 관계 링크
+      const includeLinks = [
+        { from: "AirQualityAnalysis", to: "AirQualityMeasurement", category: "Include" },
+        { from: "AirQualityReportGeneration", to: "AirQualityAnalysis", category: "Include" },
+        { from: "RealTimeDataAnalysis", to: "AirQualityMeasurement", category: "Include" },
+        { from: "AQICalculation", to: "AirQualityMeasurement", category: "Include" },
+        { from: "DailyReportGeneration", to: "AirQualityReportGeneration", category: "Include" },
+        { from: "WeeklyReportGeneration", to: "AirQualityReportGeneration", category: "Include" },
+        { from: "MonthlyReportGeneration", to: "AirQualityReportGeneration", category: "Include" },
+        { from: "DeviceStatusMonitoring", to: "IoTDeviceManagement", category: "Include" },
+        { from: "FirmwareUpdate", to: "IoTDeviceManagement", category: "Include" },
+        { from: "UserPermissionSetting", to: "UserAccountManagement", category: "Include" },
+        { from: "AQIChecking", to: "RealTimeAQMonitoring", category: "Include" },
+        { from: "AirQualityPrediction", to: "AirQualityAnalysis", category: "Include" },
+        { from: "PowerConsumptionMonitoring", to: "EnergyMonitoring", category: "Include" },
+        { from: "VentilationControl", to: "TemperatureControl", category: "Include" }
+      ];
+
+      // 확장(extend) 링크 템플릿
+      myDiagram.linkTemplateMap.add("Extend",
+        $(go.Link, {
+            routing: go.Link.AvoidsNodes,
+            curve: go.Link.JumpOver
+          },
+          $(go.Shape, { 
+            strokeWidth: 1.5,
+            stroke: "#32CD32",
+            strokeDashArray: [4, 2]
+          }),
+          $(go.Shape, { 
+            toArrow: "OpenTriangle",
+            stroke: "#32CD32",
+            fill: "#32CD32"
+          }),
+          $(go.TextBlock, "<<extend>>", {
+            segmentOffset: new go.Point(0, -10),
+            segmentOrientation: go.Link.OrientUpright,
+            background: "#1a1a1a",
+            margin: 4,
+            font: "10px sans-serif",
+            stroke: "#32CD32"
+          })
+        )
+      );
+
+      // 일반화(generalization) 관계 링크
+      const generalizationLinks = [
+        { from: "TemperatureMeasurement", to: "AirQualityMeasurement", category: "Generalization" },
+        { from: "HumidityMeasurement", to: "AirQualityMeasurement", category: "Generalization" },
+        { from: "DustMeasurement", to: "AirQualityMeasurement", category: "Generalization" },
+        { from: "VOCMeasurement", to: "AirQualityMeasurement", category: "Generalization" },
+        { from: "CO2Measurement", to: "AirQualityMeasurement", category: "Generalization" },
+        { from: "DeviceRegistration", to: "IoTDeviceManagement", category: "Generalization" },
+        { from: "DeviceConfiguration", to: "IoTDeviceManagement", category: "Generalization" },
+        { from: "UserRegistration", to: "UserAccountManagement", category: "Generalization" },
+        { from: "PushNotificationReception", to: "AnomalyAlertReception", category: "Generalization" },
+        { from: "EmailAlertReception", to: "AnomalyAlertReception", category: "Generalization" },
+        { from: "SMSAlertReception", to: "AnomalyAlertReception", category: "Generalization" },
+        { from: "IndoorTemperatureSetting", to: "EnvironmentSetting", category: "Generalization" },
+        { from: "VentilationSetting", to: "EnvironmentSetting", category: "Generalization" },
+        { from: "AirPurificationSetting", to: "EnvironmentSetting", category: "Generalization" },
+        { from: "SystemEvaluation", to: "FeedbackProvision", category: "Generalization" },
+        { from: "ImprovementRequest", to: "FeedbackProvision", category: "Generalization" }
+      ];
+
+      // 액터-유즈케이스 링크 템플릿
+      myDiagram.linkTemplate =
+        $(go.Link, {
+            routing: go.Link.AvoidsNodes,
+            curve: go.Link.JumpOver
+          },
+          $(go.Shape, { strokeWidth: 1.5, stroke: "white" }),
+          $(go.Shape, { toArrow: "Standard", fill: "white", stroke: "white" }),
+          $(go.TextBlock, {
+            segmentOffset: new go.Point(0, -10),
+            segmentOrientation: go.Link.OrientUpright,
+            background: "#1a1a1a",
+            margin: 4,
+            stroke: "white"
+          }, new go.Binding("text", "relation"))
+        );
+      
+      // 포함(include) 링크 템플릿
+      myDiagram.linkTemplateMap.add("Include",
+        $(go.Link, {
+            routing: go.Link.AvoidsNodes,
+            curve: go.Link.JumpOver
+          },
+          $(go.Shape, { 
+            strokeWidth: 1.5,
+            stroke: "#6495ED",
+            strokeDashArray: [4, 2]
+          }),
+          $(go.Shape, { 
+            toArrow: "OpenTriangle",
+            stroke: "#6495ED",
+            fill: "#6495ED"
+          }),
+          $(go.TextBlock, "<<include>>", {
+            segmentOffset: new go.Point(0, -10),
+            segmentOrientation: go.Link.OrientUpright,
+            background: "#1a1a1a",
+            margin: 4,
+            font: "10px sans-serif",
+            stroke: "#6495ED"
+          })
+        )
+      );
+
+      // 일반화(generalization) 링크 템플릿
+      myDiagram.linkTemplateMap.add("Generalization",
+        $(go.Link, {
+            routing: go.Link.AvoidsNodes,
+            curve: go.Link.JumpOver
+          },
+          $(go.Shape, { 
+            strokeWidth: 1.5,
+            stroke: "#FF69B4"
+          }),
+          $(go.Shape, { 
+            toArrow: "Triangle",
+            stroke: "#FF69B4",
+            fill: "transparent"
+          })
+        )
+      );
+
+      // 노드 데이터 - 액터
+      const actorData = [
+        { key: "Admin", category: "Actor", name: "관리자" },
+        { key: "User", category: "Actor", name: "사용자" },
+        { key: "IoTDevice", category: "IoTActor", name: "IoT 기기" },
+        { key: "ServerSystem", category: "ExternalActor", name: "서버 시스템" },
+        { key: "AISystem", category: "AIActor", name: "AI 시스템" },
+        { key: "ExternalSystem", category: "ExternalActor", name: "외부 시스템" }
+      ];
+
+      // 유즈케이스 그룹 데이터
+      const groupData = [
+        { key: "공기질 관리", isGroup: true, category: "UseCaseGroup" },
+        { key: "시스템 관리", isGroup: true, category: "UseCaseGroup" },
+        { key: "사용자 활동", isGroup: true, category: "UseCaseGroup" },
+        { key: "데이터 수집", isGroup: true, category: "UseCaseGroup" },
+        { key: "AI 분석 및 예측", isGroup: true, category: "UseCaseGroup" },
+        { key: "HVAC 제어", isGroup: true, category: "UseCaseGroup" },
+        { key: "에너지 최적화", isGroup: true, category: "UseCaseGroup" },
+        { key: "건강 데이터 통합", isGroup: true, category: "UseCaseGroup" },
+        { key: "외부 시스템 연동", isGroup: true, category: "UseCaseGroup" }
+      ];
+
+      // 유즈케이스 데이터 - 공기질 관리
+      const airQualityData = [
+        { key: "AirQualityMeasurement", category: "UseCase", name: "공기질 측정", group: "공기질 관리" },
+        { key: "TemperatureMeasurement", category: "UseCase", name: "온도 측정", group: "공기질 관리" },
+        { key: "HumidityMeasurement", category: "UseCase", name: "습도 측정", group: "공기질 관리" },
+        { key: "DustMeasurement", category: "UseCase", name: "미세먼지 측정", group: "공기질 관리" },
+        { key: "VOCMeasurement", category: "UseCase", name: "VOC 측정", group: "공기질 관리" },
+        { key: "CO2Measurement", category: "UseCase", name: "CO2 측정", group: "공기질 관리" },
+        { key: "AirQualityAnalysis", category: "UseCase", name: "공기질 분석", group: "공기질 관리" },
+        { key: "RealTimeDataAnalysis", category: "UseCase", name: "실시간 데이터 분석", group: "공기질 관리" },
+        { key: "AQICalculation", category: "UseCase", name: "공기질 지표 계산", group: "공기질 관리" },
+        { key: "AirQualityReportGeneration", category: "UseCase", name: "공기질 보고서 생성", group: "공기질 관리" },
+        { key: "DailyReportGeneration", category: "UseCase", name: "일별 보고서 생성", group: "공기질 관리" },
+        { key: "WeeklyReportGeneration", category: "UseCase", name: "주별 보고서 생성", group: "공기질 관리" },
+        { key: "MonthlyReportGeneration", category: "UseCase", name: "월별 보고서 생성", group: "공기질 관리" }
+      ];
+
+      // 유즈케이스 데이터 - 시스템 관리
+      const systemManagementData = [
+        { key: "IoTDeviceManagement", category: "UseCase", name: "IoT 기기 등록/관리", group: "시스템 관리" },
+        { key: "DeviceRegistration", category: "UseCase", name: "기기 등록", group: "시스템 관리" },
+        { key: "DeviceConfiguration", category: "UseCase", name: "기기 설정", group: "시스템 관리" },
+        { key: "DeviceStatusMonitoring", category: "UseCase", name: "기기 상태 모니터링", group: "시스템 관리" },
+        { key: "FirmwareUpdate", category: "UseCase", name: "펌웨어 업데이트", group: "시스템 관리" },
+        { key: "UserAccountManagement", category: "UseCase", name: "사용자 계정 관리", group: "시스템 관리" },
+        { key: "UserRegistration", category: "UseCase", name: "사용자 등록", group: "시스템 관리" },
+        { key: "UserPermissionSetting", category: "UseCase", name: "사용자 권한 설정", group: "시스템 관리" }
+      ];
+
+      // 유즈케이스 데이터 - 사용자 활동
+      const userActivityData = [
+        { key: "RealTimeAQMonitoring", category: "UseCase", name: "실시간 공기질 모니터링", group: "사용자 활동" },
+        { key: "DashboardChecking", category: "UseCase", name: "대시보드 확인", group: "사용자 활동" },
+        { key: "AQIChecking", category: "UseCase", name: "공기질 지표 확인", group: "사용자 활동" },
+        { key: "AlertSetting", category: "UseCase", name: "알림 설정", group: "사용자 활동" },
+        { key: "AnomalyAlertReception", category: "UseCase", name: "이상 감지 알림 수신", group: "사용자 활동" },
+        { key: "PushNotificationReception", category: "UseCase", name: "푸시 알림 수신", group: "사용자 활동" },
+        { key: "EmailAlertReception", category: "UseCase", name: "이메일 알림 수신", group: "사용자 활동" },
+        { key: "SMSAlertReception", category: "UseCase", name: "SMS 알림 수신", group: "사용자 활동" },
+        { key: "EnvironmentSetting", category: "UseCase", name: "환경 설정 조정", group: "사용자 활동" },
+        { key: "IndoorTemperatureSetting", category: "UseCase", name: "실내 온도 설정", group: "사용자 활동" },
+        { key: "VentilationSetting", category: "UseCase", name: "환기 설정", group: "사용자 활동" },
+        { key: "AirPurificationSetting", category: "UseCase", name: "공기 청정 설정", group: "사용자 활동" },
+        { key: "FeedbackProvision", category: "UseCase", name: "피드백 제공", group: "사용자 활동" },
+        { key: "SystemEvaluation", category: "UseCase", name: "시스템 평가", group: "사용자 활동" },
+        { key: "ImprovementRequest", category: "UseCase", name: "개선 요청", group: "사용자 활동" }
+      ];
+
+      // 유즈케이스 데이터 - 데이터 수집
+      const dataCollectionData = [
+        { key: "SensorDataCollection", category: "UseCase", name: "센서 데이터 수집", group: "데이터 수집" },
+        { key: "TemperatureDataCollection", category: "UseCase", name: "온도 데이터 수집", group: "데이터 수집" },
+        { key: "HumidityDataCollection", category: "UseCase", name: "습도 데이터 수집", group: "데이터 수집" },
+        { key: "DustDataCollection", category: "UseCase", name: "미세먼지 데이터 수집", group: "데이터 수집" },
+        { key: "VOCDataCollection", category: "UseCase", name: "VOC 데이터 수집", group: "데이터 수집" },
+        { key: "CO2DataCollection", category: "UseCase", name: "CO2 데이터 수집", group: "데이터 수집" },
+        { key: "DataPreprocessing", category: "UseCase", name: "데이터 전처리", group: "데이터 수집" },
+        { key: "DataFiltering", category: "UseCase", name: "데이터 필터링", group: "데이터 수집" },
+        { key: "MissingValueHandling", category: "UseCase", name: "결측값 처리", group: "데이터 수집" },
+        { key: "OutlierDetection", category: "UseCase", name: "이상치 탐지", group: "데이터 수집" },
+        { key: "DataNormalization", category: "UseCase", name: "데이터 정규화", group: "데이터 수집" },
+        { key: "DataStorage", category: "UseCase", name: "데이터 저장", group: "데이터 수집" },
+        { key: "RealTimeDataStorage", category: "UseCase", name: "실시간 데이터 저장", group: "데이터 수집" },
+        { key: "HistoricalDataStorage", category: "UseCase", name: "히스토리 데이터 저장", group: "데이터 수집" }
+      ];
+
+      // 유즈케이스 데이터 - AI 분석 및 예측
+      const aiAnalysisData = [
+        { key: "AirQualityPrediction", category: "UseCase", name: "공기질 예측", group: "AI 분석 및 예측" },
+        { key: "ShortTermPrediction", category: "UseCase", name: "단기 예측", group: "AI 분석 및 예측" },
+        { key: "MediumTermPrediction", category: "UseCase", name: "중기 예측", group: "AI 분석 및 예측" },
+        { key: "LongTermPrediction", category: "UseCase", name: "장기 예측", group: "AI 분석 및 예측" },
+        { key: "AnomalyPatternDetection", category: "UseCase", name: "이상 패턴 감지", group: "AI 분석 및 예측" },
+        { key: "PatternLearning", category: "UseCase", name: "패턴 학습", group: "AI 분석 및 예측" },
+        { key: "RealTimeAnomalyDetection", category: "UseCase", name: "실시간 이상 감지", group: "AI 분석 및 예측" },
+        { key: "AnomalyCauseAnalysis", category: "UseCase", name: "이상 원인 분석", group: "AI 분석 및 예측" },
+        { key: "HVACOptimizationAlgorithm", category: "UseCase", name: "HVAC 최적화 알고리즘", group: "AI 분석 및 예측" },
+        { key: "EnergyEfficiencyOptimization", category: "UseCase", name: "에너지 효율 최적화", group: "AI 분석 및 예측" },
+        { key: "ComfortOptimization", category: "UseCase", name: "쾌적도 최적화", group: "AI 분석 및 예측" },
+        { key: "CostOptimization", category: "UseCase", name: "비용 최적화", group: "AI 분석 및 예측" },
+        { key: "UserPatternLearning", category: "UseCase", name: "사용자 패턴 학습", group: "AI 분석 및 예측" },
+        { key: "UserPreferenceLearning", category: "UseCase", name: "사용자 선호도 학습", group: "AI 분석 및 예측" },
+        { key: "UserBehaviorAnalysis", category: "UseCase", name: "사용자 행동 패턴 분석", group: "AI 분석 및 예측" }
+      ];
+
+      // 유즈케이스 데이터 - HVAC 제어
+      const hvacControlData = [
+        { key: "TemperatureControl", category: "UseCase", name: "온도 제어", group: "HVAC 제어" },
+        { key: "HeatingControl", category: "UseCase", name: "난방 제어", group: "HVAC 제어" },
+        { key: "CoolingControl", category: "UseCase", name: "냉방 제어", group: "HVAC 제어" },
+        { key: "VentilationControl", category: "UseCase", name: "환기 제어", group: "HVAC 제어" },
+        { key: "NaturalVentilationControl", category: "UseCase", name: "자연 환기 제어", group: "HVAC 제어" },
+        { key: "MechanicalVentilationControl", category: "UseCase", name: "기계 환기 제어", group: "HVAC 제어" },
+        { key: "AirConditionerControl", category: "UseCase", name: "에어컨 제어", group: "HVAC 제어" },
+        { key: "ScheduleBasedControl", category: "UseCase", name: "스케줄 기반 제어", group: "HVAC 제어" },
+        { key: "RealTimeControl", category: "UseCase", name: "실시간 제어", group: "HVAC 제어" },
+        { key: "RemoteControl", category: "UseCase", name: "원격 제어", group: "HVAC 제어" },
+        { key: "AirPurifierControl", category: "UseCase", name: "공기 청정기 제어", group: "HVAC 제어" },
+        { key: "AutoModeControl", category: "UseCase", name: "자동 모드 제어", group: "HVAC 제어" },
+        { key: "ManualModeControl", category: "UseCase", name: "수동 모드 제어", group: "HVAC 제어" }
+      ];
+
+      // 유즈케이스 데이터 - 에너지 최적화
+      const energyOptimizationData = [
+        { key: "EnergyMonitoring", category: "UseCase", name: "에너지 모니터링", group: "에너지 최적화" },
+        { key: "PowerConsumptionMonitoring", category: "UseCase", name: "전력 소비 모니터링", group: "에너지 최적화" },
+        { key: "GasConsumptionMonitoring", category: "UseCase", name: "가스 소비 모니터링", group: "에너지 최적화" },
+        { key: "WaterConsumptionMonitoring", category: "UseCase", name: "물 소비 모니터링", group: "에너지 최적화" },
+        { key: "EnergyUsageOptimization", category: "UseCase", name: "에너지 사용 최적화", group: "에너지 최적화" },
+        { key: "PeakLoadManagement", category: "UseCase", name: "피크 부하 관리", group: "에너지 최적화" },
+        { key: "StandbyPowerManagement", category: "UseCase", name: "대기 전력 관리", group: "에너지 최적화" },
+        { key: "EnergyConsumptionPrediction", category: "UseCase", name: "에너지 소비 예측", group: "에너지 최적화" },
+        { key: "CostAnalysis", category: "UseCase", name: "비용 분석", group: "에너지 최적화" },
+        { key: "ElectricityCostAnalysis", category: "UseCase", name: "전기 비용 분석", group: "에너지 최적화" },
+        { key: "GasCostAnalysis", category: "UseCase", name: "가스 비용 분석", group: "에너지 최적화" },
+        { key: "SavingEffectAnalysis", category: "UseCase", name: "절감 효과 분석", group: "에너지 최적화" }
+      ];
+
+      // 유즈케이스 데이터 - 건강 데이터 통합
+      const healthDataIntegrationData = [
+        { key: "HealthDataInput", category: "UseCase", name: "건강 데이터 입력", group: "건강 데이터 통합" },
+        { key: "ManualDataInput", category: "UseCase", name: "수동 데이터 입력", group: "건강 데이터 통합" },
+        { key: "WearableDeviceIntegration", category: "UseCase", name: "웨어러블 기기 연동", group: "건강 데이터 통합" },
+        { key: "HealthAppIntegration", category: "UseCase", name: "건강 앱 연동", group: "건강 데이터 통합" },
+        { key: "HealthStatusMonitoring", category: "UseCase", name: "건강 상태 모니터링", group: "건강 데이터 통합" },
+        { key: "RealTimeHealthChecking", category: "UseCase", name: "실시간 건강 상태 확인", group: "건강 데이터 통합" },
+        { key: "HealthTrendAnalysis", category: "UseCase", name: "건강 추세 분석", group: "건강 데이터 통합" },
+        { key: "HealthReportGeneration", category: "UseCase", name: "건강 리포트 생성", group: "건강 데이터 통합" },
+        { key: "CustomEnvironmentRecommendation", category: "UseCase", name: "맞춤형 환경 추천", group: "건강 데이터 통합" },
+        { key: "AllergyCustomSetting", category: "UseCase", name: "알레르기 맞춤 설정", group: "건강 데이터 통합" },
+        { key: "RespiratoryHealthOptimization", category: "UseCase", name: "호흡기 건강 최적화", group: "건강 데이터 통합" },
+        { key: "SleepEnvironmentOptimization", category: "UseCase", name: "수면 환경 최적화", group: "건강 데이터 통합" }
+      ];
+
+      // 유즈케이스 데이터 - 외부 시스템 연동
+      const externalSystemIntegrationData = [
+        { key: "WeatherDataCollection", category: "UseCase", name: "기상 데이터 수집", group: "외부 시스템 연동" },
+        { key: "RealTimeWeatherDataCollection", category: "UseCase", name: "실시간 기상 데이터 수집", group: "외부 시스템 연동" },
+        { key: "WeatherForecastDataCollection", category: "UseCase", name: "기상 예보 데이터 수집", group: "외부 시스템 연동" },
+        { key: "AirPollutionDataCollection", category: "UseCase", name: "대기 오염 데이터 수집", group: "외부 시스템 연동" },
+        { key: "ExternalAQDataCollection", category: "UseCase", name: "외부 공기질 데이터 수집", group: "외부 시스템 연동" },
+        { key: "LocalAQDataCollection", category: "UseCase", name: "지역 공기질 데이터 수집", group: "외부 시스템 연동" },
+        { key: "NationalAQICollection", category: "UseCase", name: "국가 공기질 지수 수집", group: "외부 시스템 연동" },
+        { key: "PowerUsageInfoCollection", category: "UseCase", name: "전력 사용 정보 수집", group: "외부 시스템 연동" },
+        { key: "RealTimeElectricityRateCollection", category: "UseCase", name: "실시간 전력 요금 수집", group: "외부 시스템 연동" },
+        { key: "ElectricityDemandPredictionCollection", category: "UseCase", name: "전력 수요 예측 데이터 수집", group: "외부 시스템 연동" }
+      ];
+
+      // 모든 유즈케이스 데이터 결합
+      const useCaseData = [
+        ...airQualityData,
+        ...systemManagementData,
+        ...userActivityData,
+        ...dataCollectionData,
+        ...aiAnalysisData,
+        ...hvacControlData,
+        ...energyOptimizationData,
+        ...healthDataIntegrationData,
+        ...externalSystemIntegrationData
+      ];
+
+      // 모든 노드 데이터 결합
+      const nodeDataArray = [
+        ...actorData,
+        ...groupData,
+        ...useCaseData
+      ];
+
+      // 모든 링크 데이터 결합
+      const linkDataArray = [
+        ...actorToGroupLinks,
+        ...includeLinks,
+        ...generalizationLinks
+      ];
+
+      // 다이어그램 모델 설정
+      myDiagram.model = new go.GraphLinksModel({
+        nodeDataArray: nodeDataArray,
+        linkDataArray: linkDataArray,
+        nodeGroupKeyProperty: "group"
+      });
+
+      // 초기화 함수
+      function resetDiagram() {
+        try {
+          myDiagram.scale = 1.0;
+          myDiagram.commandHandler.zoomToFit();
+        } catch (error) {
+          console.error("다이어그램 초기화 오류:", error);
+          showError("다이어그램 초기화 중 오류가 발생했습니다: " + error.message);
+        }
+      }
+
+      // 페이지 로드 시 자동으로 다이어그램 초기화
+      try {
+        resetDiagram();
+      } catch (error) {
+        console.error("다이어그램 실행 오류:", error);
+        showError("다이어그램 실행 중 오류가 발생했습니다: " + error.message);
+      }
+    } catch (initError) {
+      console.error("다이어그램 초기화 오류:", initError);
+      showError("다이어그램 초기화 중 오류가 발생했습니다: " + initError.message);
+    }
+  </script>
+</body>
+</html>
